@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  ares:
+    build: .
+    container_name: ares-dev
+    ports:
+      - "8000:8000"
+      - "5678:5678"
+    environment:
+      - PYTHONPATH=/code
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      - ./app:/code/app
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]  # Enable hot reload
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - backend
+
+networks:
+  backend:
+    driver: bridge
+    external: true
