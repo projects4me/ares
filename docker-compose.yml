@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   ares:
-    build: .
+    build: rananoman/ares:dev-latest
     container_name: ares-dev
     ports:
       - "8000:8000"
