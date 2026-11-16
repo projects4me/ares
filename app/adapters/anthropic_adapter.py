@@ -3,6 +3,18 @@ import os
 from typing import Dict, Any
 from .base_ai_adapter import BaseAIAdapter
 
+
+DEFAULT_MAX_TOKENS = 10000
+
+
+def _default_max_tokens() -> int:
+    """ARES_DEFAULT_MAX_TOKENS, or 10000 when it is unset, not a number or not positive."""
+    try:
+        value = int(os.getenv("ARES_DEFAULT_MAX_TOKENS") or DEFAULT_MAX_TOKENS)
+    except ValueError:
+        return DEFAULT_MAX_TOKENS
+    return value if value > 0 else DEFAULT_MAX_TOKENS
+
 class AnthropicAdapter(BaseAIAdapter):
     """
     Adapter for integrating with Anthropic's Claude API.
@@ -42,7 +54,7 @@ class AnthropicAdapter(BaseAIAdapter):
             raise Exception("ANTHROPIC_API_KEY environment variable is not set")
         
         # Create the Anthropic client with the API key
-        self.client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        self.client = anthropic.AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
     
     async def authenticate(self) -> Dict[str, Any]:
         """
@@ -87,10 +99,11 @@ class AnthropicAdapter(BaseAIAdapter):
         Args:
             message (str): The message to send to Claude
             **kwargs: Additional parameters for the API call
-                model (str, optional): The Claude model to use. 
-                    Defaults to "claude-sonnet-4-20250514"
-                max_tokens (int, optional): Maximum tokens for the response. 
-                    Defaults to 10000
+                model (str, optional): The Claude model to use. Defaults to the
+                    ARES_DEFAULT_MODEL env var, else "claude-sonnet-4-20250514"
+                max_tokens (int, optional): Maximum tokens for the response.
+                    Defaults to the ARES_DEFAULT_MAX_TOKENS env var, else 10000
+                system (str, optional): System prompt sent apart from the messages
         
         Returns:
             Dict[str, Any]: Response object containing:
@@ -106,20 +119,22 @@ class AnthropicAdapter(BaseAIAdapter):
         """
         try:
             # Extract parameters with defaults
-            model = kwargs.get("model", "claude-sonnet-4-20250514")
-            max_tokens = kwargs.get("max_tokens", 10000)
-            
-            response = self.client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                messages=message
-            )
-            
+            model = kwargs.get("model") or os.getenv("ARES_DEFAULT_MODEL") or "claude-sonnet-4-20250514"
+            max_tokens = kwargs.get("max_tokens")
+            if max_tokens is None:
+                max_tokens = _default_max_tokens()
+            request = {"model": model, "max_tokens": max_tokens, "messages": message}
+            if kwargs.get("system"):
+                request["system"] = kwargs["system"]
+
+            response = await self.client.messages.create(**request)
+
             return {
                 "success": True,
-                "response": response.content[0].text,
+                "response": "".join(block.text for block in response.content if getattr(block, "type", None) == "text"),
                 "provider": self.get_provider_name(),
                 "model": model,
+                "stop_reason": getattr(response, "stop_reason", None),
                 "tokens_used": response.usage.output_tokens if hasattr(response, 'usage') else None
             }
             

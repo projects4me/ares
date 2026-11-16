@@ -30,15 +30,19 @@ class BaseAIAdapter(ABC):
         
         Args:
             message (str): The message to send to the AI provider
-            **kwargs: Additional provider-specific parameters that may be required
-                by different AI providers (e.g., model selection, token limits,
-                temperature settings, etc.)
+            **kwargs: Parameters that let a service tune the call. Every adapter
+                accepts these, falling back to its own env-configured defaults:
+                model (str, optional): The model to use
+                max_tokens (int, optional): Maximum tokens for the response
+                system (str, optional): System prompt, kept apart from the messages
+                Other provider-specific parameters may follow.
         
         Returns:
             Dict[str, Any]: A standardized response object containing:
                 - success (bool): Whether the API call was successful
                 - response (str): The response text from the AI provider (if successful)
                 - provider (str): The provider name for identification
+                - stop_reason (str, optional): Why the reply ended; "max_tokens" when cut off
                 - Additional provider-specific metadata (model used, tokens consumed, etc.)
                 - error (str): Error message (if unsuccessful)
         
