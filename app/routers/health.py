@@ -12,7 +12,11 @@ Author:
     Rana Nouman <ranamnouman@gmail.com>
 """
 
-from fastapi import APIRouter
+from typing import Optional
+
+from fastapi import APIRouter, Depends
+from app.adapters.base_embedding_adapter import BaseEmbeddingAdapter
+from app.dependencies import get_embedding_adapter_or_none
 from app.factories.ai_service_factory import AIServiceFactory
 
 router = APIRouter(
@@ -20,7 +24,7 @@ router = APIRouter(
 )
 
 @router.get("/")
-async def read_root():
+async def read_root(embedding_adapter: Optional[BaseEmbeddingAdapter] = Depends(get_embedding_adapter_or_none)):
     """
     Health check endpoint to verify service status.
     
@@ -40,6 +44,8 @@ async def read_root():
                 - provider (str): The AI provider name
                 - status (str): Health status message
                 - error (str): Error message (if unsuccessful)
+            - embedding_health (dict): Whether the embedding model is loaded
+                - loaded (bool), model (str), error (str or None)
     
     Example:
         GET /health/
@@ -63,7 +69,8 @@ async def read_root():
         
         return {
             "message": "Application is healthy",
-            "llm_health": llm_health
+            "llm_health": llm_health,
+            "embedding_health": _embedding_health(embedding_adapter)
         }
     except Exception as e:
         return {
@@ -73,5 +80,16 @@ async def read_root():
                 "provider": "unknown",
                 "status": "LLM service health check failed",
                 "error": f"Health check error: {str(e)}"
-            }
-        } 
+            },
+            "embedding_health": _embedding_health(embedding_adapter)
+        }
+
+
+def _embedding_health(adapter: Optional[BaseEmbeddingAdapter]) -> dict:
+    if adapter is None:
+        return {"loaded": False, "model": None, "error": "The embedding provider is not available"}
+    return {
+        "loaded": adapter.is_loaded(),
+        "model": adapter.model_name(),
+        "error": adapter.load_error(),
+    } 
