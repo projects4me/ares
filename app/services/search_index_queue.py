@@ -3,8 +3,10 @@ The indexing queue: one bounded async queue of records to index, worked by a few
 
 Events and reconciled records share it. A record is a (resource, id) key:
 - one already waiting in the queue is not queued again;
-- one being processed is marked to run once more when its run ends, never handed to a
-  second worker in parallel, so an edit made while it was embedded is not lost;
+- one being processed and offered again (an event: its text changed) is marked to run
+  once more when its run ends, never handed to a second worker in parallel, so an edit
+  made while it was embedded is not lost. A reconcile that lists it again adds nothing:
+  it is pending in Gaia only because its run has not stored the embedding yet;
 - a failure is logged and handed to on_failure (which may ask for a reconcile); no retry here.
 
 offer() never waits and drops the record when the queue is full (an event; the next
@@ -48,9 +50,9 @@ class SearchIndexQueue:
         self._workers = []
 
     def offer(self, resource: str, record_id: str) -> bool:
-        """Queue the record unless it is already waiting; False when the queue is full and it was dropped."""
+        """Queue a changed record unless it is already waiting; False when the queue is full and it was dropped."""
         key = (resource, record_id)
-        if self._absorbed(key):
+        if self._absorbed(key, changed=True):
             return True
         try:
             self._queue.put_nowait(key)
@@ -61,9 +63,9 @@ class SearchIndexQueue:
         return True
 
     async def put(self, resource: str, record_id: str) -> None:
-        """Queue the record unless it is already waiting, waiting for room when the queue is full."""
+        """Queue a pending record unless it is waiting or running, waiting for room when the queue is full."""
         key = (resource, record_id)
-        if self._absorbed(key):
+        if self._absorbed(key, changed=False):
             return
         # Marked before waiting, so a concurrent offer of the same record does not queue it twice.
         self._waiting.add(key)
@@ -77,12 +79,14 @@ class SearchIndexQueue:
         """Wait until every queued record has been processed."""
         await self._queue.join()
 
-    def _absorbed(self, key: RecordKey) -> bool:
-        """True when the key needs no new queue entry: it is waiting already, or running and now marked to rerun."""
+    def _absorbed(self, key: RecordKey, changed: bool) -> bool:
+        """True when the key needs no new queue entry: it is waiting already, or running (and, when it changed,
+        now marked to rerun)."""
         if key in self._waiting:
             return True
         if key in self._running:
-            self._rerun.add(key)
+            if changed:
+                self._rerun.add(key)
             return True
         return False
 

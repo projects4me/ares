@@ -81,7 +81,7 @@ def test_a_record_changed_while_processed_runs_again_after_never_in_parallel():
         await recorder.started[key].wait()
         # Two edits during the run ask for one more run, which waits for this one.
         queue.offer(*key)
-        await queue.put(*key)
+        queue.offer(*key)
         await asyncio.sleep(0)
         assert recorder.runs == [key]
         gate.set()
@@ -172,3 +172,23 @@ def test_stopping_during_a_run_queues_no_rerun():
 
     queue = run(scenario())
     assert queue._queue.qsize() == 0
+
+
+def test_a_reconcile_listing_a_running_record_queues_no_rerun():
+    async def scenario():
+        recorder = Recorder()
+        key = ("issue", "1")
+        recorder.gate(key)
+        gate = recorder.gates[key]
+        queue = SearchIndexQueue(recorder, max_size=10, concurrency=1)
+        queue.start()
+        queue.offer(*key)
+        await recorder.started[key].wait()
+        # Still pending in Gaia until this run stores it: nothing new to do.
+        await queue.put(*key)
+        gate.set()
+        await queue.join()
+        await queue.stop()
+        return recorder
+
+    assert run(scenario()).runs == [("issue", "1")]
