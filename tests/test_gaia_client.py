@@ -7,7 +7,8 @@ import httpx
 import pytest
 
 from app.adapters.gaia_auth import GaiaAuth
-from app.adapters.gaia_client import EmbeddingStored, GaiaClient, RecordNotFound, SearchState, StaleHash
+from app.adapters.gaia_client import (
+    EmbeddingStored, GaiaClient, PendingPage, PendingRecord, RecordNotFound, SearchState, StaleHash)
 from app.adapters.gaia_errors import (
     GaiaAuthError, GaiaConfigError, GaiaRequestRejected, GaiaUnavailable)
 
@@ -340,3 +341,59 @@ def test_unreadable_patch_reply_still_counts_as_stored(client, gaia):
     stored = run(client.store_embedding("issue", ISSUE_ID, [0.1], HASH))
 
     assert stored == EmbeddingStored(ISSUE_ID, HASH)
+
+
+def pending_doc(records, next_cursor=None):
+    return {"data": [{"type": t, "resource": r, "id": i} for t, r, i in records], "next": next_cursor}
+
+
+def test_list_pending_reads_one_page_with_its_cursor(client, gaia):
+    gaia.responses.append((200, pending_doc([("issue", "issue", ISSUE_ID)], f"issue:{ISSUE_ID}")))
+
+    page = run(client.list_pending(after="issue:0", limit=1))
+
+    assert page == PendingPage([PendingRecord("issue", "issue", ISSUE_ID)], f"issue:{ISSUE_ID}")
+    request = gaia.api_requests()[0]
+    assert request.method == "GET"
+    assert request.url.path == "/api/v1/searchpending"
+    assert dict(request.url.params) == {"after": "issue:0", "limit": "1"}
+    assert request.headers["Authorization"] == "Bearer token-1"
+
+
+def test_list_pending_from_the_start_sends_no_cursor_and_ends_on_null_next(client, gaia):
+    gaia.responses.append((200, pending_doc([])))
+
+    page = run(client.list_pending())
+
+    assert page == PendingPage([], None)
+    assert dict(gaia.api_requests()[0].url.params) == {}
+
+
+def test_list_pending_400_raises_request_rejected(client, gaia):
+    gaia.responses.append((400, {"errors": [{"detail": "The cursor must be the next value of a previous page."}]}))
+
+    with pytest.raises(GaiaRequestRejected) as error:
+        run(client.list_pending(after="bad"))
+
+    assert error.value.status == 400
+    assert "cursor" in str(error.value)
+
+
+def test_list_pending_403_raises_auth_error(client, gaia):
+    gaia.responses.append((403, {"errors": [{"detail": "missing scope searchpending.get"}]}))
+
+    with pytest.raises(GaiaAuthError):
+        run(client.list_pending())
+
+
+@pytest.mark.parametrize("body", [
+    {"data": None, "next": None},
+    {"data": [{"type": "issue", "resource": "issue"}], "next": None},
+    {"data": [], "next": 5},
+    ["not", "a", "page"],
+])
+def test_list_pending_malformed_reply_raises_unavailable(client, gaia, body):
+    gaia.responses.append((200, body))
+
+    with pytest.raises(GaiaUnavailable):
+        run(client.list_pending())

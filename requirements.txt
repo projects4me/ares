@@ -3,3 +3,4 @@ uvicorn[standard]==0.24.0
 anthropic==0.59.0
 debugpy==1.8.1
 fastembed==0.7.3
+python-socketio[asyncio_client]==5.18.1

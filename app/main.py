@@ -17,6 +17,8 @@ The application includes four router modules:
 - docs: Provides AI help for the Docs editor (ask, complete, review)
 - embeddings: Turns texts into search vectors with the in-process embedding model
 
+The lifespan also runs semantic search indexing (app.services.search_sync) when it is configured.
+
 Author:
     Rana Nouman <ranamnouman@gmail.com>
 """
@@ -27,6 +29,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from app.dependencies import get_embedding_adapter_or_none
+from app.factories.search_sync_factory import SearchSyncFactory
 from app.routers import docs, embeddings, health, planissue
 from app.services.ai_call import AIProviderError
 from app.services.embedding_service import EmbeddingUnavailableError
@@ -34,12 +37,20 @@ from app.services.embedding_service import EmbeddingUnavailableError
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load the embedding model in the background: the API starts at once and /embeddings answers 503 until it is ready."""
+    """Load the embedding model in the background: the API starts at once and /embeddings answers 503 until it is ready.
+    Semantic search indexing starts once the model is loaded, when it is configured."""
     adapter = await get_embedding_adapter_or_none()
     load = asyncio.create_task(adapter.load()) if adapter else None
-    yield
-    if load and not load.done():
-        load.cancel()
+    search_sync = SearchSyncFactory.create_search_sync(adapter)
+    if search_sync:
+        search_sync.start(load)
+    try:
+        yield
+    finally:
+        if search_sync:
+            await search_sync.stop()
+        if load and not load.done():
+            load.cancel()
 
 
 # Create FastAPI instance
