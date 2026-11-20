@@ -32,7 +32,7 @@ These house rules assume the repo is checked out inside the **Pr4M** workspace (
 
 ### Boundaries
 - Stateless: no database, no stored data. Gaia `core/services/LLM.php` is the only caller.
-- Ares also calls Gaia as the `ares` service client (Gaia D-065/D-066/D-072): it may read a searchable record's `searchSemanticText`, `searchSemanticHash` and `searchEmbeddingHash`, and PATCH only `{searchEmbedding, searchEmbeddingHash}` (409 when the hash is stale). It writes nothing else and keeps nothing but the access token in memory.
+- Ares also calls Gaia as the `ares` service client (Gaia D-065/D-066/D-072): it may read a searchable record's `searchSemanticText`, `searchDesiredHash` and `searchActualHash`, and PATCH only `{searchEmbedding, searchActualHash}` (409 when the sent `searchActualHash` is not the stored `searchDesiredHash`). It writes nothing else and keeps nothing but the access token in memory.
 - Never log or echo `GAIA_CLIENT_SECRET` or access tokens.
 - Request/response changes ship as linked PRs with Gaia and merge together.
 - Failures must be visible: return a clear error status and message, never an empty or fake plan.

@@ -5,8 +5,8 @@ and stores its embedding, as the `ares` service client (Gaia D-072).
 - get_search_state(resource, id): GET /api/v1/<resource>/<id> with the three search
   fields Gaia opens to ares through `fields=`.
 - store_embedding(resource, id, embedding, text_hash): PATCH /api/v1/<resource>/<id>
-  with {searchEmbedding, searchEmbeddingHash}; Gaia stores it only when the hash is
-  the record's current searchSemanticHash and answers 409 otherwise.
+  with {searchEmbedding, searchActualHash}; Gaia stores it only when the hash is
+  the record's current searchDesiredHash and answers 409 otherwise.
 
 A missing record (404) and a stale hash (409) are results the caller acts on; other
 failures raise the errors in gaia_errors. A 401 signs in again and retries once.
@@ -24,7 +24,7 @@ from app.adapters.gaia_auth import GaiaAuth
 from app.adapters.gaia_errors import GaiaAuthError, GaiaRequestRejected, GaiaUnavailable
 
 API_PREFIX = "/api/v1/"
-SEARCH_FIELDS = ("searchSemanticText", "searchSemanticHash", "searchEmbeddingHash")
+SEARCH_FIELDS = ("searchSemanticText", "searchDesiredHash", "searchActualHash")
 DEFAULT_TIMEOUT_SECONDS = 10.0
 # A Gaia resource is its lower-case model name, e.g. "issue".
 _RESOURCE = re.compile(r"[a-z][a-z0-9]*")
@@ -32,18 +32,18 @@ _RESOURCE = re.compile(r"[a-z][a-z0-9]*")
 
 @dataclass(frozen=True)
 class SearchState:
-    """What Gaia holds for a record's semantic search: the text to embed, its hash and the hash last embedded."""
+    """What Gaia holds for semantic search: the text to embed, its desired hash and the actual hash last embedded."""
     id: str
     semantic_text: Optional[str]
-    semantic_hash: Optional[str]
-    embedding_hash: Optional[str]
+    desired_hash: Optional[str]
+    actual_hash: Optional[str]
 
 
 @dataclass(frozen=True)
 class EmbeddingStored:
     """Gaia stored the embedding for this hash."""
     id: str
-    embedding_hash: str
+    actual_hash: str
 
 
 @dataclass(frozen=True)
@@ -89,14 +89,14 @@ class GaiaClient:
         return SearchState(
             id=record_id,
             semantic_text=attributes.get("searchSemanticText"),
-            semantic_hash=attributes.get("searchSemanticHash"),
-            embedding_hash=attributes.get("searchEmbeddingHash"),
+            desired_hash=attributes.get("searchDesiredHash"),
+            actual_hash=attributes.get("searchActualHash"),
         )
 
     async def store_embedding(self, resource: str, record_id: str, embedding: List[float],
                               text_hash: str) -> Union[EmbeddingStored, RecordNotFound, StaleHash]:
         body = {"data": {"type": resource, "id": record_id,
-                         "attributes": {"searchEmbedding": list(embedding), "searchEmbeddingHash": text_hash}}}
+                         "attributes": {"searchEmbedding": list(embedding), "searchActualHash": text_hash}}}
         response = await self._send("PATCH", resource, record_id, json=body)
         if response.status_code == 404:
             return RecordNotFound(resource, record_id)
@@ -105,7 +105,7 @@ class GaiaClient:
         _raise_for_status(response, "PATCH", resource)
         # Gaia stored the embedding; an unreadable reply does not undo that.
         try:
-            stored = _attributes(response).get("searchEmbeddingHash") or text_hash
+            stored = _attributes(response).get("searchActualHash") or text_hash
         except GaiaUnavailable:
             stored = text_hash
         return EmbeddingStored(record_id, stored)
