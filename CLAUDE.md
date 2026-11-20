@@ -7,6 +7,7 @@
 - `routers/planissue.py` (`POST /planissue/`, prompts) -> `services/planissue_service.py` -> `factories/ai_service_factory.py` -> `adapters/anthropic_adapter.py`.
 - Only caller: Gaia `core/services/LLM.php` (POSTs `{issueDetails:{projectName, issueSubject, issueDescription}}`).
 - New providers: subclass `adapters/base_ai_adapter.py` and register in the factory.
+- Gaia gateway: `adapters/gaia_client.py` (`GaiaClient`: read a record's semantic search text and hashes, store its embedding; 404 and 409 come back as results, other failures as `adapters/gaia_errors.py`) over `adapters/gaia_auth.py` (client_credentials sign-in as the `ares` service client, token cached and refreshed). Config from env: `GAIA_URL`, `GAIA_CLIENT_ID`, `GAIA_CLIENT_SECRET`, `GAIA_TIMEOUT_SECONDS`.
 
 ## Rules
 - Use Pydantic models for request/response; return parsed JSON, not a JSON string (coordinate the change with Gaia).
@@ -31,6 +32,8 @@ These house rules assume the repo is checked out inside the **Pr4M** workspace (
 
 ### Boundaries
 - Stateless: no database, no stored data. Gaia `core/services/LLM.php` is the only caller.
+- Ares also calls Gaia as the `ares` service client (Gaia D-065/D-066/D-072): it may read a searchable record's `searchSemanticText`, `searchSemanticHash` and `searchEmbeddingHash`, and PATCH only `{searchEmbedding, searchEmbeddingHash}` (409 when the hash is stale). It writes nothing else and keeps nothing but the access token in memory.
+- Never log or echo `GAIA_CLIENT_SECRET` or access tokens.
 - Request/response changes ship as linked PRs with Gaia and merge together.
 - Failures must be visible: return a clear error status and message, never an empty or fake plan.
 
