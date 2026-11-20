@@ -78,8 +78,8 @@ def issue_doc(**attributes):
 
 
 def test_get_search_state_reads_the_three_fields(client, gaia):
-    gaia.responses.append((200, issue_doc(searchSemanticText="Login fails", searchSemanticHash=HASH,
-                                          searchEmbeddingHash=None)))
+    gaia.responses.append((200, issue_doc(searchSemanticText="Login fails", searchDesiredHash=HASH,
+                                          searchActualHash=None)))
 
     state = run(client.get_search_state("issue", ISSUE_ID))
 
@@ -88,8 +88,18 @@ def test_get_search_state_reads_the_three_fields(client, gaia):
     assert request.method == "GET"
     assert request.url.path == f"/api/v1/issue/{ISSUE_ID}"
     assert request.url.params["fields"] == (
-        "Issue.id,Issue.searchSemanticText,Issue.searchSemanticHash,Issue.searchEmbeddingHash")
+        "Issue.id,Issue.searchSemanticText,Issue.searchDesiredHash,Issue.searchActualHash")
     assert request.headers["Authorization"] == "Bearer token-1"
+
+
+def test_get_search_state_keeps_desired_and_actual_hash_apart(client, gaia):
+    old_hash = "b" * 64
+    gaia.responses.append((200, issue_doc(searchSemanticText="Login fails", searchDesiredHash=HASH,
+                                          searchActualHash=old_hash)))
+
+    state = run(client.get_search_state("issue", ISSUE_ID))
+
+    assert (state.desired_hash, state.actual_hash) == (HASH, old_hash)
 
 
 def test_sign_in_uses_client_credentials(client, gaia):
@@ -105,7 +115,7 @@ def test_sign_in_uses_client_credentials(client, gaia):
 
 
 def test_store_embedding_patches_vector_and_hash(client, gaia):
-    gaia.responses.append((200, issue_doc(searchEmbeddingHash=HASH)))
+    gaia.responses.append((200, issue_doc(searchActualHash=HASH)))
 
     result = run(client.store_embedding("issue", ISSUE_ID, [0.1, 0.2], HASH))
 
@@ -114,7 +124,7 @@ def test_store_embedding_patches_vector_and_hash(client, gaia):
     assert request.method == "PATCH"
     assert request.url.path == f"/api/v1/issue/{ISSUE_ID}"
     assert json.loads(request.content) == {"data": {"type": "issue", "id": ISSUE_ID, "attributes": {
-        "searchEmbedding": [0.1, 0.2], "searchEmbeddingHash": HASH}}}
+        "searchEmbedding": [0.1, 0.2], "searchActualHash": HASH}}}
 
 
 def test_stale_hash_is_a_result(client, gaia):
@@ -152,11 +162,11 @@ def test_token_is_reused_until_it_nears_expiry(client, gaia, clock):
 
 
 def test_401_signs_in_again_and_retries_once(client, gaia):
-    gaia.responses += [(401, {"error": "invalid_token"}), (200, issue_doc(searchSemanticHash=HASH))]
+    gaia.responses += [(401, {"error": "invalid_token"}), (200, issue_doc(searchDesiredHash=HASH))]
 
     state = run(client.get_search_state("issue", ISSUE_ID))
 
-    assert state.semantic_hash == HASH
+    assert state.desired_hash == HASH
     assert gaia.tokens_issued == 2
     assert [r.headers["Authorization"] for r in gaia.api_requests()] == ["Bearer token-1", "Bearer token-2"]
 
@@ -270,7 +280,7 @@ def test_record_id_is_escaped(client, gaia):
 
 
 def test_second_401_drops_the_refused_token(client, gaia):
-    gaia.responses += [(401, {}), (401, {}), (200, issue_doc(searchSemanticHash=HASH))]
+    gaia.responses += [(401, {}), (401, {}), (200, issue_doc(searchDesiredHash=HASH))]
 
     with pytest.raises(GaiaAuthError):
         run(client.get_search_state("issue", ISSUE_ID))
