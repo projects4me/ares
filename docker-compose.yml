@@ -14,6 +14,8 @@ services:
       - GAIA_CLIENT_ID=${GAIA_CLIENT_ID}
       - GAIA_CLIENT_SECRET=${GAIA_CLIENT_SECRET}
       - GAIA_TIMEOUT_SECONDS=${GAIA_TIMEOUT_SECONDS:-10}
+      - HERMES_URL=${HERMES_URL}
+      - SEARCH_RECONCILE_INTERVAL=${SEARCH_RECONCILE_INTERVAL:-3600}
     volumes:
       - ./app:/code/app
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]  # Enable hot reload
